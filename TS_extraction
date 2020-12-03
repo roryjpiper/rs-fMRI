@@ -1,0 +1,366 @@
+%%%PIPER 2019%%%
+
+
+%%%%%%%%%%%%%%
+%%%CONTROLS%%%
+%%%%%%%%%%%%%%
+
+clc
+clear
+close all
+disp('Time Series Extraction')
+disp('Rory Piper 2019')
+disp('controls')
+
+addpath(genpath(['/Volumes/iStorageRJP/rory_code']))
+
+%%FREQUENCY FILTER%%
+%Input parameters%
+TR = 2.16;
+fs = 1/TR;
+timeVEC = 1/fs:1/fs:10*60;
+sig_in = randn(1,length(timeVEC));
+cfg.Fs = fs;
+% FILTER BAND // In Hertz, it has to be a four element vector
+cfg.F=[0.025 0.04 0.07 0.09]; 
+% FILTER DEVIATION // see 'help firpmord'
+cfg.DEV=[0.05 0.01 0.05];
+cfg.A=[0 1 0];
+%path to fmribandpassV2%
+
+
+%%%ATLAS SWITCH%%%
+atlas_control_val=1 %toggle to switch between atlas aal=1, xother=2, yother=3
+
+%%%ATLAS LOAD%%%
+if atlas_control_val==1
+    %AAL atlas%
+    cd /Volumes/iStorageRJP/rory_code
+    diraal='/Volumes/iStorageRJP/atlases/aal/';
+    aalfilename='ROI_MNI_V4';  
+    % import look-up table linking values in aal to brain regions 
+    [roicode, brainregion, brainregionvalue] = importfileAALinfo([diraal,aalfilename,'.txt']);
+    atlas = niftiread([diraal,aalfilename,'.nii']);  % read in image with AAL regions defined by number 2000s-9000s
+    numregions=90;
+elseif atlas_control_val==2
+    %Phili BG Atlas%
+    cd /Volumes/iStorageRJP/rory_code/
+    dir_phili_BG_atlas = '/Volumes/iStorageRJP/atlases/phili_BG_atlas/';
+    bg_atlas_filename = 'basalganglia_atlas';
+    [roicode, brainregion, brainregionvalue] = importfileBGinfo([dir_phili_BG_atlas,bg_atlas_filename,'.txt']);
+    atlas = niftiread([dir_phili_BG_atlas,bg_atlas_filename,'.nii']);
+    numregions=42;
+end
+
+%%%CONTROLS%%%
+cd /Volumes/iStorageRJP/eeg-fMRI_ETE_project/
+subjects = dir('/Volumes/iStorageRJP/eeg-fMRI_ETE_project/Controls/*');
+counts = 1;
+for s = 22:length(subjects); %skips the . and .. in the directory
+    n = subjects(s,1).name;
+    disp(n)
+    currentdir=[subjects(s).folder,'/', subjects(s).name ];
+    cd (currentdir)
+    
+    %%%SESSIONS%%%
+    for t = 4:4(currentdir); %skips the . and .. in the directory
+        sessions = dir(currentdir);
+        sessionname = sessions(t).name;
+        cd (sessionname)
+        load regressors/noise_basis6.txt
+        %Load FIATCH/regressors
+        %For GLM for FIATCH Y=Xb+e (X is rp file (296x12), Y=data, b and e are calculated)
+        X = [noise_basis6 ones(296,1)];
+        InvX = pinv(X);
+        %Move into fmri directory
+        cd ('swrarfmri/');
+        files = dir('sw*.nii');
+        
+        %%%SCANS%%%
+        for f = 1:length(files); % loop going through each fMRI file
+            g = files(f,1).name;
+            fmri(:,:,:,f) = niftiread(g);
+        end
+        matrix_allscans_pre_correction(:,:,:,:) = fmri;
+           
+        %%%REGIONS%%%
+        for i=1:numregions; 
+            brainregion(i);
+            Currentregionvalue = brainregionvalue(i,1);
+            [locc(:,1),locc(:,2),locc(:,3)] = findND(atlas==Currentregionvalue);
+            for loc_idx = 1:length(locc)
+                region_timeseriesTMP(loc_idx,:) = matrix_allscans_pre_correction(locc(loc_idx,1),locc(loc_idx,2),locc(loc_idx,3),:);
+            end
+            Y = mean(region_timeseriesTMP,1)'; % mean of time series across every voxels in the region
+            b = InvX*double(Y);
+            e = Y - X*b; %after GLM
+            region_timeseries(i,:) = e;
+            befGLM_region_timeseries(i,:) = Y';
+            fil_region_timeseries(i,:) = fmribandpassV2(cfg,e);            
+            clear region_timeseriesTMP locc Y e
+        end
+        matrix_all_controls_fil(:,:,counts) = fil_region_timeseries;
+        clear region_timeseries fil_region_timeseries befGLM_region_timeseries
+        cd ../../  
+    end
+    counts = counts +1;
+    cd ../
+end
+
+cd /Volumes/iStorageRJP/eeg-fMRI_ETE_project/Combined/
+save('matrix_all_controls_aal','matrix_all_controls_fil')
+save('brainregion_aal','brainregion')
+disp('done')
+
+
+
+%%%%%%%%%%%%%%
+%%%PATIENTS%%%
+%%%%%%%%%%%%%%
+
+
+clc
+clear
+close all
+
+disp('Time Series Extraction')
+disp('Rory Piper 2019')
+disp('patients (before IED regression)')
+
+addpath(genpath(['/Volumes/iStorageRJP/rory_code']))
+
+%%FREQUENCY FILTER%%
+%Input parameters%
+TR = 2.16;
+fs = 1/TR;
+timeVEC = 1/fs:1/fs:10*60;
+sig_in = randn(1,length(timeVEC));
+cfg.Fs = fs;
+% FILTER BAND // In Hertz, it has to be a four element vector
+cfg.F=[0.025 0.04 0.07 0.09]; 
+% FILTER DEVIATION // see 'help firpmord'
+cfg.DEV=[0.05 0.01 0.05];
+cfg.A=[0 1 0];
+%path to fmribandpassV2%
+
+
+%%%ATLAS SWITCH%%%
+atlas_control_val = 1 %toggle to switch between atlas aal=1, xother=2, yother=3
+
+%%%ATLAS LOAD%%%
+if atlas_control_val==1
+    %AAL atlas%
+    cd /Volumes/iStorageRJP/rory_code
+    diraal='/Volumes/iStorageRJP/atlases/aal/';
+    aalfilename='ROI_MNI_V4';  
+    % import look-up table linking values in aal to brain regions 
+    [roicode, brainregion, brainregionvalue] = importfileAALinfo([diraal,aalfilename,'.txt']);
+    atlas = niftiread([diraal,aalfilename,'.nii']);  % read in image with AAL regions defined by number 2000s-9000s
+    numregions=90;
+elseif atlas_control_val==2
+    %Phili BG Atlas%
+    cd /Volumes/iStorageRJP/rory_code/
+    dir_phili_BG_atlas = '/Volumes/iStorageRJP/atlases/phili_BG_atlas/';
+    bg_atlas_filename = 'basalganglia_atlas';
+    [roicode, brainregion, brainregionvalue] = importfileBGinfo([dir_phili_BG_atlas,bg_atlas_filename,'.txt']);
+    atlas = niftiread([dir_phili_BG_atlas,bg_atlas_filename,'.nii']);
+    numregions=42;
+elseif atlas_control_val==3
+    %AAL 3%
+    cd /Volumes/iStorageRJP/rory_code/
+    diraal3 = '/Volumes/iStorageRJP/atlases/AAL3/';
+    aal3filename = 'ROI_MNI_V6';
+    [roicode, brainregion, brainregionvalue] = importfileAAL3info([diraal3,aal3filename,'.txt']);
+    atlas = niftiread([diraal3,aal3filename,'.nii']);
+    sr = [1:34 37:80 83:94 121:132 135:156]; %sr = selected regions
+    roicode = roicode(sr);
+    brainregion = brainregion(sr);
+    brainregionvalue = brainregionvalue(sr);
+    numregions= length(brainregion);
+end
+
+cd /Volumes/iStorageRJP/eeg-fMRI_ETE_project/
+subjects = dir('/Volumes/iStorageRJP/eeg-fMRI_ETE_project/Patients/*');
+counts = 1;
+for s = 38:length(subjects); %skips the . and .. in the directory
+    n = subjects(s,1).name;
+    disp(n)
+    currentdir=[subjects(s).folder,'/', subjects(s).name ];
+    cd (currentdir)
+    
+    %%%SESSIONS%%%
+    for t = 5:5(currentdir); %skips the . and .. in the directory
+        sessions = dir(currentdir);
+        sessionname = sessions(t).name;
+        cd (sessionname)
+        load regressors/noise_basis6.txt
+        %Load FIATCH/regressors
+        %For GLM for FIATCH Y=Xb+e (X is rp file (296x12), Y=data, b and e are calculated)
+        X = [noise_basis6 ones(296,1)];
+        InvX = pinv(X);
+        %Move into fmri directory
+        cd ('swrarfmri/');
+        files = dir('sw*.nii');
+        
+        %%%SCANS%%%
+        for f = 1:length(files); % loop going through each fMRI file
+            g = files(f,1).name;
+            fmri(:,:,:,f) = niftiread(g);
+        end
+        matrix_allscans_pre_correction(:,:,:,:) = fmri;
+           
+        %%%REGIONS%%%
+        for i=1:numregions; 
+            brainregion(i);
+            Currentregionvalue = brainregionvalue(i,1);
+            [locc(:,1),locc(:,2),locc(:,3)] = findND(atlas==Currentregionvalue);
+            for loc_idx = 1:length(locc)
+                region_timeseriesTMP(loc_idx,:) = matrix_allscans_pre_correction(locc(loc_idx,1),locc(loc_idx,2),locc(loc_idx,3),:);
+            end
+            Y = mean(region_timeseriesTMP,1)'; % mean of time series across every voxels in the region
+            b = InvX*double(Y);
+            e = Y - X*b; %after GLM
+            region_timeseries(i,:) = e;
+            befGLM_region_timeseries(i,:) = Y';
+            fil_region_timeseries(i,:) = fmribandpassV2(cfg,e);            
+            clear region_timeseriesTMP locc Y e
+        end
+        matrix_all_patients_fil(:,:,counts) = fil_region_timeseries;
+        clear region_timeseries fil_region_timeseries befGLM_region_timeseries
+        cd ../../  
+    end
+    counts = counts +1;
+    cd ../
+end
+
+cd /Volumes/iStorageRJP/eeg-fMRI_ETE_project/Combined/
+save('matrix_all_patients_aal','matrix_all_patients_fil')
+save('brainregion_aal','brainregion')
+disp('done')
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%IED REGRESSSED PATIENTS%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+clc
+clear
+close all
+
+disp('Time Series Extraction')
+disp('Rory Piper 2019')
+disp('patients (after IED regression)')
+
+addpath(genpath(['/Volumes/iStorageRJP/rory_code']))
+
+%%FREQUENCY FILTER%%
+%Input parameters%
+TR = 2.16;
+fs = 1/TR;
+timeVEC = 1/fs:1/fs:10*60;
+sig_in = randn(1,length(timeVEC));
+cfg.Fs = fs;
+% FILTER BAND // In Hertz, it has to be a four element vector
+cfg.F=[0.025 0.04 0.07 0.09]; 
+% FILTER DEVIATION // see 'help firpmord'
+cfg.DEV=[0.05 0.01 0.05];
+cfg.A=[0 1 0];
+%path to fmribandpassV2%
+
+
+%%%ATLAS SWITCH%%%
+atlas_control_val=1 %toggle to switch between atlas aal=1, xother=2, yother=3
+
+%%%ATLAS LOAD%%%
+if atlas_control_val==1
+    %AAL atlas%
+    cd /Volumes/iStorageRJP/rory_code
+    diraal='/Volumes/iStorageRJP/atlases/aal/';
+    aalfilename='ROI_MNI_V4';  
+    % import look-up table linking values in aal to brain regions 
+    [roicode, brainregion, brainregionvalue] = importfileAALinfo([diraal,aalfilename,'.txt']);
+    atlas = niftiread([diraal,aalfilename,'.nii']);  % read in image with AAL regions defined by number 2000s-9000s
+    numregions=90;
+elseif atlas_control_val==2
+    %Phili BG Atlas%
+    cd /Volumes/iStorageRJP/rory_code/
+    dir_phili_BG_atlas = '/Volumes/iStorageRJP/atlases/phili_BG_atlas/';
+    bg_atlas_filename = 'basalganglia_atlas';
+    [roicode, brainregion, brainregionvalue] = importfileBGinfo([dir_phili_BG_atlas,bg_atlas_filename,'.txt']);
+    atlas = niftiread([dir_phili_BG_atlas,bg_atlas_filename,'.nii']);
+    numregions=42;
+elseif atlas_control_val==3
+    %AAL 3%
+    cd /Volumes/iStorageRJP/rory_code/
+    diraal3 = '/Volumes/iStorageRJP/atlases/AAL3/';
+    aal3filename = 'ROI_MNI_V6';
+    [roicode, brainregion, brainregionvalue] = importfileAAL3info([diraal3,aal3filename,'.txt']);
+    atlas = niftiread([diraal3,aal3filename,'.nii']);
+    sr = [1:34 37:80 83:94 121:132 135:156]; %sr = selected regions
+    roicode = roicode(sr);
+    brainregion = brainregion(sr);
+    brainregionvalue = brainregionvalue(sr);
+    numregions= length(brainregion);
+end
+
+cd /Volumes/iStorageRJP/eeg-fMRI_ETE_project/
+subjects = dir('/Volumes/iStorageRJP/eeg-fMRI_ETE_project/Patients/*');
+counts = 1;
+for s = 38:length(subjects) %skips the . and .. in the directory
+    n = subjects(s,1).name;
+    disp(n)
+    currentdir=[subjects(s).folder,'/', subjects(s).name ];
+    cd (currentdir)
+    
+    %%%SESSIONS%%%
+    for t = 5:5(currentdir); %skips the . and .. in the directory
+        sessions = dir(currentdir);
+        sessionname = sessions(t).name;
+        cd (sessionname)
+        
+        %Load FIACH and spike regressors
+        load regressors/noise_basis6.txt
+        load ../Analysis/spike_regs.txt
+        %For GLM: Y=Xb+e (X is regressor files (296x12(+spike regressors)), Y=data, b and e are calculated)
+        X = [noise_basis6 spike_regs ones(296,1)];
+        InvX = pinv(X);
+        %Move into fmri directory
+        cd ('swrarfmri/');
+        files = dir('sw*.nii');
+        
+        %%%SCANS%%%
+        for f = 1:length(files); % loop going through each fMRI file
+            g = files(f,1).name;
+            fmri(:,:,:,f) = niftiread(g);
+        end
+        matrix_allscans_pre_correction(:,:,:,:) = fmri;
+           
+        %%%REGIONS%%%
+        for i=1:numregions; 
+            brainregion(i);
+            Currentregionvalue = brainregionvalue(i,1);
+            [locc(:,1),locc(:,2),locc(:,3)] = findND(atlas==Currentregionvalue);
+            for loc_idx = 1:length(locc)
+                region_timeseriesTMP(loc_idx,:) = matrix_allscans_pre_correction(locc(loc_idx,1),locc(loc_idx,2),locc(loc_idx,3),:);
+            end
+            Y = mean(region_timeseriesTMP,1)'; % mean of time series across every voxels in the region
+            b = InvX*double(Y);
+            e = Y - X*b; %after GLM
+            region_timeseries(i,:) = e;
+            befGLM_region_timeseries(i,:) = Y';
+            fil_region_timeseries(i,:) = fmribandpassV2(cfg,e);            
+            clear region_timeseriesTMP locc Y e
+        end
+        matrix_all_patients_fil_spikeregressed(:,:,counts) = fil_region_timeseries;
+        clear region_timeseries fil_region_timeseries befGLM_region_timeseries
+        cd ../../  
+    end
+    counts = counts +1;
+    cd ../
+end
+
+cd /Volumes/iStorageRJP/eeg-fMRI_ETE_project/Combined/
+save ('matrix_all_regressed_aal','matrix_all_patients_fil_spikeregressed')
+save('brainregion_aal','brainregion')
+disp('done')
